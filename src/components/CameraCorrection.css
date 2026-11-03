@@ -1,0 +1,46 @@
+
+.camera-correction {
+  width: 100%;
+}
+
+.camera-correction-preview {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.camera-correction-preview > div {
+  flex: 1;
+  min-width: 280px;
+}
+
+.camera-correction-preview img,
+.camera-correction-preview canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #111;
+}
+
+.camera-correction-controls {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.camera-correction-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.camera-correction-controls input {
+  width: 240px;
+}
+
+.camera-correction-controls button {
+  padding: 8px 20px;
+  cursor: pointer;
+}
