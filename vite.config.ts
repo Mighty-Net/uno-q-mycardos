@@ -44,6 +44,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/vision/, ''),
       },
+      '/api/mcu': {
+        target: 'http://127.0.0.1:53003',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/mcu(?=\/|$)/, '') || '/',
+      },
     },
   },
   base: "./",
