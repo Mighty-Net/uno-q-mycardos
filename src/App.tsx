@@ -200,7 +200,7 @@ const ActionBar = styled.div`
   padding: 0 18px 18px;
 `;
 
-const ActionWrapper = styled.div<{ $primary?: boolean; $disabled?: boolean }>`
+const ActionWrapper = styled.div<{$disabled?: boolean }>`
   flex: 1;
   min-width: 135px;
   opacity: ${({ $disabled }) => $disabled ? .65 : 1};
@@ -396,10 +396,21 @@ function App() {
     dept: '', email: '', mobile: '', name: '', nameEn: '', phone: '', title: '',
   });
   const [eventName, setEventName] = React.useState<string>('');
+  const refEventName = React.useRef<string>('');
+  const [currentState,setCurrentState] = React.useState<number>(1);
+  const refCurrentState = React.useRef<number>(1);
+  const hold = React.useRef<boolean>(false);
+  const standbyCnt = React.useRef<number>(0);
+
+  useEffect(() => {
+    changeLEDState(currentState)
+    refCurrentState.current = currentState;
+    // console.log(`state changed:${currentState}`)
+  },[currentState])
 
   useEffect(() => {
     const canvas = document.createElement('canvas');
-    const timer = setInterval(async () => {
+    const visionTimer = setInterval(async () => {
       const img = imgRef.current;
       if (busyRef.current || !img?.naturalWidth) return;
 
@@ -432,9 +443,21 @@ function App() {
             data.corners.bottomLeft
           ]
         : [];
+
+        const isDetected = data.success&&isValidQuad(corners, data.width, data.height);
+        if(!isDetected&&refCurrentState.current>3)standbyCnt.current++;
+        if(standbyCnt.current>=2){
+          standbyCnt.current = 0;
+          hold.current = false;
+        }
+        if(!hold.current){
+          refCurrentState.current = isDetected?2:1;
+          setCurrentState(refCurrentState.current);
+        }
+        
         setResult({
           ...data,
-          detected: data.success&&isValidQuad(corners, data.width, data.height),
+          detected: isDetected,
           image: {
             width: data.width,
             height: data.height
@@ -454,8 +477,12 @@ function App() {
         busyRef.current = false;
       }
     }, 300);
+    
+    changeLEDState(1);
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(visionTimer);
+    }
   }, []);
 
   const handleCapture = () => {
@@ -491,6 +518,8 @@ function App() {
     if (!img?.naturalWidth || isIdentifying) return;
 
     setIsIdentifying(true);
+    setCurrentState(3);
+    hold.current = true;
     setIdentifyError('');
     try {
       const canvas = document.createElement('canvas');
@@ -510,28 +539,42 @@ function App() {
 
       fetchController.current = new AbortController();
       g_serverCommError = false;
-      const response = await serverApi.uoloadResolveVcard({}, files, fetchController.current);
+      const response = await serverApi.uoloadResolveVcard({eventName:refEventName.current}, files, fetchController.current);
+      // console.log(response)
       if (g_serverCommError || response.status !== 0) {
+        setCurrentState(5);
         throw new Error('名片辨識失敗，請重新嘗試');
       }
+      setCurrentState(4);
       setVcardInfo(prev => ({ ...prev, ...response.data }));
     } catch (error) {
-      console.error(error);
+      // console.error(error);
       setIdentifyError(error instanceof Error ? error.message : '名片辨識失敗');
     } finally {
       setIsIdentifying(false);
     }
-  }, [isIdentifying]);
+  }, []);
 
   const changeVInfoValue=(key:string,value:string)=>{
     setVcardInfo(prev=>({...prev,[key]:value}))
   }
-  const clearVInfo=()=>{
+  const clearVInfo = React.useCallback(()=>{
     setVcardInfo({
       address: '', addressEn: '', company: '', companyEn: '', companyUrl: '',
       dept: '', email: '', mobile: '', name: '', nameEn: '', phone: '', title: '',
     });
-  }
+  },[]);
+
+  const changeLEDState = React.useCallback((state:number)=>{
+    const res = fetch('/api/mcu/pattern', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ pattern: state }),
+    });
+  },[])
+
 
   const detected = Boolean(result?.detected);
 
@@ -619,13 +662,17 @@ function App() {
               {/* <ActionWrapper>
                 <ActButton text="擷取照片" onClick={handleCapture} />
               </ActionWrapper> */}
-              <ActionWrapper $primary $disabled={isIdentifying}>
+              {/* <ActionWrapper $disabled={isIdentifying}>
+                <ActButton text='測試LED' onClick={()=>changeLEDState(2)}/>
+              </ActionWrapper> */}
+              <ActionWrapper $disabled={isIdentifying}>
                 <ActButton
                   text={isIdentifying ? '辨識中…' : 'AI 辨識名片'}
                   onClick={identifyCard}
+                  isDisable={!detected}
                 />
               </ActionWrapper>
-              <ActionWrapper $primary $disabled={isIdentifying}>
+              <ActionWrapper $disabled={isIdentifying}>
                 <ActButton
                   text='清除名片資訊'
                   onClick={clearVInfo}
@@ -637,7 +684,7 @@ function App() {
           <InfoContainer>
             <PanelHeader style={{justifyContent:'flex-start'}}>
               <PanelTitle>活動名稱</PanelTitle>
-              <TextInput style={{width:'100%'}} maxLength={50} value={eventName} onInput={setEventName} />
+              <TextInput style={{width:'100%'}} maxLength={50} value={eventName} onInput={(text)=>{setEventName(text);refEventName.current=text;}} />
             </PanelHeader>
             <PanelHeader>
               <div>
