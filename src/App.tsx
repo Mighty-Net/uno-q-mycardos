@@ -3,11 +3,12 @@ import * as serverApi from '@/serverApi';
 import styled from 'styled-components';
 import ActButton from '@/components/ActButton';
 import TextInput from './components/TextInput';
+import {MsgToast,type TypeToast} from '@/components/MsgToast';
+
 
 const Container = styled.div`
   width: 100%;
-  min-width:1024px;
-  height: 100dvh;
+  height: 100vh;
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
@@ -73,15 +74,17 @@ const PageDescription = styled.p`
 `;
 
 const Layout = styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(390px, .85fr);
+  display: flex;
   gap: 20px;
   flex: 1;
   min-height: 0;
-  align-items: stretch;
+  align-items: flex-start;
+  overflow: auto;
 
-  & > :first-child { align-self: start; }
-
+  @media (max-width: 1100px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
 `;
 
 const Panel = styled.section`
@@ -90,6 +93,18 @@ const Panel = styled.section`
   border-radius: 20px;
   box-shadow: 0 8px 32px rgba(31, 49, 85, .045);
   overflow: hidden;
+  display:flex;
+  flex-direction:column;
+`;
+
+const CameraPanel = styled(Panel)`
+  flex: 1;
+  min-width: 0;
+
+  @media (max-width: 1100px) {
+    width: 100%;
+    flex: none;
+  }
 `;
 
 const PanelHeader = styled.div`
@@ -209,27 +224,48 @@ const ActionWrapper = styled.div<{$disabled?: boolean }>`
 `;
 
 const InfoContainer = styled(Panel)`
+  flex: 0 0 45%;
   min-width: 0;
   min-height: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
 
-  & > ${PanelHeader} { flex-shrink: 0; }
+  & > ${PanelHeader} {
+    flex-shrink: 0;
+  }
 
+  @media (max-width: 1100px) {
+    width: 100%;
+    flex: none;
+    height: auto !important;
+    max-height: none;
+  }
 `;
 
 const FormBody = styled.div`
   padding: 22px;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  box-sizing: border-box;
+
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
-  &::-webkit-scrollbar { width: 7px; }
-  &::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-  &::-webkit-scrollbar-track { background: transparent; }
+
+  &::-webkit-scrollbar {
+    width: 7px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+  }
+
+  @media (max-width: 1100px) {
+    flex: none;
+    overflow: visible;
+  }
 `;
 
 const FormSection = styled.div`
@@ -310,7 +346,7 @@ const isValidQuad = (
   minAngle = 60,
   maxAngle = 120,
   minSideRatio = 0.6,
-  minAreaRatio = 0.5,
+  minAreaRatio = 0.3,
   maxAreaRatio = 0.9
 ): boolean => {
   if (points.length !== 4 || imageWidth <= 0 || imageHeight <= 0)
@@ -385,22 +421,43 @@ const isValidQuad = (
 };
 
 function App() {
+  const panelRef = useRef<HTMLElement>(null);
+  const [panelHeight, setPanelHeight] = useState(0);
   const imgRef = useRef<HTMLImageElement>(null);
   const busyRef = useRef(false);
   const [result, setResult] = useState<any>(null);
-  const fetchController = React.useRef<AbortController | null>(null);
+  const fetchController = useRef<AbortController | null>(null);
   const [isIdentifying, setIsIdentifying] = useState(false);
   const [identifyError, setIdentifyError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [vcardInfo, setVcardInfo] = useState<VcardInfo>({
     address: '', addressEn: '', company: '', companyEn: '', companyUrl: '',
     dept: '', email: '', mobile: '', name: '', nameEn: '', phone: '', title: '',
   });
-  const [eventName, setEventName] = React.useState<string>('');
-  const refEventName = React.useRef<string>('');
-  const [currentState,setCurrentState] = React.useState<number>(1);
-  const refCurrentState = React.useRef<number>(1);
-  const hold = React.useRef<boolean>(false);
-  const standbyCnt = React.useRef<number>(0);
+  const [eventName, setEventName] = useState<string>('');
+  const refEventName = useRef<string>('');
+  const [currentState,setCurrentState] = useState<number>(1);
+  const refCurrentState = useRef<number>(1);
+  const hold = useRef<boolean>(false);
+  const standbyCnt = useRef<number>(0);
+  const refIsIdentifying = useRef(false);
+  const refIsDetectd = useRef(false);
+  const imgID = useRef<string|null>(null);
+  const refToast = React.useRef<TypeToast | null>(null);
+
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setPanelHeight(entry.borderBoxSize?.[0]?.blockSize ?? entry.target.getBoundingClientRect().height);
+    });
+
+    observer.observe(panel);
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     changeLEDState(currentState)
@@ -445,6 +502,7 @@ function App() {
         : [];
 
         const isDetected = data.success&&isValidQuad(corners, data.width, data.height);
+        refIsDetectd.current = isDetected;
         if(!isDetected&&refCurrentState.current>3)standbyCnt.current++;
         if(standbyCnt.current>=2){
           standbyCnt.current = 0;
@@ -476,7 +534,7 @@ function App() {
       } finally {
         busyRef.current = false;
       }
-    }, 300);
+    }, 250);
     
     changeLEDState(1);
 
@@ -509,7 +567,7 @@ function App() {
       a.click();
 
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, 'image/jpeg', 0.85);
+    }, 'image/jpeg', 1);
   };
 
 
@@ -518,6 +576,7 @@ function App() {
     if (!img?.naturalWidth || isIdentifying) return;
 
     setIsIdentifying(true);
+    refIsIdentifying.current = true;
     setCurrentState(3);
     hold.current = true;
     setIdentifyError('');
@@ -528,12 +587,13 @@ function App() {
       canvas.getContext('2d')!.drawImage(img, 0, 0);
 
       const blob = await new Promise<Blob | null>(resolve =>
-        canvas.toBlob(resolve, 'image/jpeg', 0.85)
+        canvas.toBlob(resolve, 'image/jpeg', 1)
       );
       if (!blob) throw new Error('無法擷取相機畫面');
 
+      imgID.current = crypto.randomUUID();
       const files = [{
-        fid: crypto.randomUUID(),
+        fid: imgID.current,
         fileInfo: new File([blob], 'capture.jpg', { type: 'image/jpeg' })
       }];
 
@@ -543,6 +603,10 @@ function App() {
       // console.log(response)
       if (g_serverCommError || response.status !== 0) {
         setCurrentState(5);
+        if(!g_serverCommError){
+          setIdentifyError(response.message);
+          return;
+        }
         throw new Error('名片辨識失敗，請重新嘗試');
       }
       setCurrentState(4);
@@ -552,8 +616,53 @@ function App() {
       setIdentifyError(error instanceof Error ? error.message : '名片辨識失敗');
     } finally {
       setIsIdentifying(false);
+      refIsIdentifying.current = false;
     }
   }, []);
+
+  const saveVCard2DB = React.useCallback(async()=>{
+    const isVcardEmpty = Object.values(vcardInfo).every(
+      value => !value?.trim()
+    ); 
+
+
+    if(isVcardEmpty){
+      refToast.current?.show({
+        severity:'warn',
+        summary:'',
+        detail:"沒有名片資訊！",
+        sticky:false,life:1000 
+      });
+      return;
+    }
+    setIsSaving(true);
+    setIdentifyError('');
+    try {
+      g_serverCommError = false;
+      const response = await serverApi.saveVcard({vcardInfo:vcardInfo,eventName:refEventName.current,imgID:imgID.current});
+      // console.log(response)
+      if(g_serverCommError){
+        refToast.current?.show({
+          severity:'error',
+          summary:'',
+          detail:"名片資訊儲存失敗。",
+          sticky:false,life:1000 
+        });
+        setIdentifyError(response.msg);
+        return 
+      }
+      refToast.current?.show({
+        severity:'success',
+        summary:'',
+        detail:"名片資訊已儲存。",
+        sticky:false,life:1000 
+      });
+    } catch (error) {
+      
+    } finally {
+      setIsSaving(false);
+    }
+  },[vcardInfo])
 
   const changeVInfoValue=(key:string,value:string)=>{
     setVcardInfo(prev=>({...prev,[key]:value}))
@@ -598,6 +707,7 @@ function App() {
 
   return (
     <Container>
+      <MsgToast ref={refToast}/>
       <PageContent>
         <Header>
           <Brand>
@@ -610,7 +720,7 @@ function App() {
         </Header>
 
         <Layout>
-          <Panel>
+          <CameraPanel ref={panelRef}>
             <PanelHeader>
               <div>
                 <PanelTitle>即時相機預覽</PanelTitle>
@@ -665,14 +775,20 @@ function App() {
               {/* <ActionWrapper $disabled={isIdentifying}>
                 <ActButton text='測試LED' onClick={()=>changeLEDState(2)}/>
               </ActionWrapper> */}
-              <ActionWrapper $disabled={isIdentifying}>
+              <ActionWrapper $disabled={isIdentifying||isSaving}>
                 <ActButton
                   text={isIdentifying ? '辨識中…' : 'AI 辨識名片'}
                   onClick={identifyCard}
-                  isDisable={!detected}
+                  // isDisable={!detected}
                 />
               </ActionWrapper>
-              <ActionWrapper $disabled={isIdentifying}>
+              <ActionWrapper $disabled={isIdentifying||isSaving}>
+                <ActButton
+                  text='儲存名片資訊'
+                  onClick={saveVCard2DB}
+                />
+              </ActionWrapper>
+              <ActionWrapper $disabled={isIdentifying||isSaving}>
                 <ActButton
                   text='清除名片資訊'
                   onClick={clearVInfo}
@@ -680,8 +796,8 @@ function App() {
               </ActionWrapper>
             </ActionBar>
             {identifyError && <ErrorMessage>{identifyError}</ErrorMessage>}
-          </Panel>
-          <InfoContainer>
+          </CameraPanel>
+          <InfoContainer style={{ height: panelHeight || undefined }}>
             <PanelHeader style={{justifyContent:'flex-start'}}>
               <PanelTitle>活動名稱</PanelTitle>
               <TextInput style={{width:'100%'}} maxLength={50} value={eventName} onInput={(text)=>{setEventName(text);refEventName.current=text;}} />
